@@ -3,14 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-
-<title>360 VR Player iPad</title>
+<title>360 VR Player iPad FIX</title>
 
 <style>
 body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch-action:none; }
 
 #player { width:100vw; height:100vh; }
 
+/* 顶部输入 */
+#topUI {
+  position:fixed;
+  top:10px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:20;
+}
+
+#topUI input {
+  width:260px;
+}
+
+/* 控制栏 */
 #controls {
   position:fixed;
   bottom:20px;
@@ -21,8 +34,9 @@ body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch
   padding:10px;
   border-radius:10px;
   color:#fff;
-  opacity:0;
+  opacity:1;
   transition:0.3s;
+  z-index:20;
 }
 
 .row { display:flex; align-items:center; gap:10px; }
@@ -44,21 +58,23 @@ body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch
 /* 按钮 */
 #reset {
   position:fixed;
-  right:20px;
+  right:15px;
   top:50%;
   transform:translateY(-50%);
   background:rgba(255,255,255,0.2);
   padding:10px;
   border-radius:10px;
+  z-index:20;
 }
 
 #fullscreen {
   position:fixed;
-  right:20px;
+  right:15px;
   bottom:20px;
   background:rgba(0,0,0,0.5);
   padding:10px;
   border-radius:10px;
+  z-index:20;
 }
 
 /* loading */
@@ -68,8 +84,9 @@ body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch
   left:50%;
   transform:translate(-50%,-50%);
   color:#fff;
-  font-size:20px;
+  font-size:18px;
   display:none;
+  z-index:30;
 }
 </style>
 </head>
@@ -78,6 +95,11 @@ body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch
 
 <div id="player"></div>
 
+<div id="topUI">
+  <input id="url" placeholder="粘贴视频链接">
+  <button onclick="startPlay()">播放</button>
+</div>
+
 <div id="loading">加载中...</div>
 
 <div id="controls">
@@ -85,11 +107,9 @@ body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch
     <button onclick="togglePlay()">▶/⏸</button>
     <span id="time">0:00 / 0:00</span>
 
-    <select id="quality"></select>
-
     <div id="volumeBox">
       <button onclick="toggleVolume()">🔊</button>
-      <input type="range" id="volumeSlider" min="0" max="1" step="0.01">
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
     </div>
   </div>
 
@@ -104,11 +124,12 @@ body { margin:0; background:#000; overflow:hidden; font-family:sans-serif; touch
 
 <script>
 let scene, camera, renderer, video, texture, hls;
-let lon=90, lat=0;
-let controls=document.getElementById("controls");
 
-let touchStartX, touchStartY;
-let lastDistance = null;
+let lon=90, lat=0;
+let touchX, touchY;
+let lastDist=null;
+
+let controls = document.getElementById("controls");
 
 init();
 animate();
@@ -121,54 +142,53 @@ function init(){
   renderer.setSize(innerWidth,innerHeight);
   document.getElementById("player").appendChild(renderer.domElement);
 
-  const geo=new THREE.SphereGeometry(500,60,40);
+  let geo=new THREE.SphereGeometry(500,60,40);
   geo.scale(-1,1,1);
 
-  video=document.createElement('video');
+  video=document.createElement("video");
   video.crossOrigin="anonymous";
 
   texture=new THREE.VideoTexture(video);
   scene.add(new THREE.Mesh(geo,new THREE.MeshBasicMaterial({map:texture})));
 
-  // ===== 手势控制 =====
+  // ===== 手势 =====
   renderer.domElement.addEventListener("touchstart", e=>{
     if(e.touches.length===1){
-      touchStartX=e.touches[0].clientX;
-      touchStartY=e.touches[0].clientY;
+      touchX=e.touches[0].clientX;
+      touchY=e.touches[0].clientY;
     }
-
     if(e.touches.length===2){
-      lastDistance=getDistance(e);
+      lastDist=getDist(e);
     }
   });
 
   renderer.domElement.addEventListener("touchmove", e=>{
     if(e.touches.length===1){
-      let dx=e.touches[0].clientX-touchStartX;
-      let dy=e.touches[0].clientY-touchStartY;
+      let dx=e.touches[0].clientX-touchX;
+      let dy=e.touches[0].clientY-touchY;
 
       lon -= dx*0.1;
       lat += dy*0.1;
 
-      touchStartX=e.touches[0].clientX;
-      touchStartY=e.touches[0].clientY;
+      touchX=e.touches[0].clientX;
+      touchY=e.touches[0].clientY;
     }
 
     if(e.touches.length===2){
-      let dist=getDistance(e);
-      let delta=dist-lastDistance;
+      let d=getDist(e);
+      let delta=d-lastDist;
 
       camera.fov -= delta*0.05;
       camera.fov=Math.max(30,Math.min(100,camera.fov));
       camera.updateProjectionMatrix();
 
-      lastDistance=dist;
+      lastDist=d;
     }
   });
 
   // 单击显示UI
   renderer.domElement.addEventListener("touchend", ()=>{
-    controls.style.opacity = controls.style.opacity=="1"?"0":"1";
+    controls.style.opacity = controls.style.opacity==="1"?"0":"1";
   });
 
   // 进度
@@ -211,14 +231,15 @@ function init(){
   window.addEventListener("resize", onResize);
 }
 
-function getDistance(e){
-  let dx=e.touches[0].clientX-e.touches[1].clientX;
-  let dy=e.touches[0].clientY-e.touches[1].clientY;
-  return Math.sqrt(dx*dx+dy*dy);
+function startPlay(){
+  let url=document.getElementById("url").value;
+  loadVideo(url);
 }
 
 function loadVideo(url){
   if(hls) hls.destroy();
+
+  showLoading(true);
 
   if(url.endsWith(".m3u8")){
     hls=new Hls();
@@ -242,6 +263,12 @@ function toggleVolume(){
 
 function showLoading(b){
   document.getElementById("loading").style.display=b?"block":"none";
+}
+
+function getDist(e){
+  let dx=e.touches[0].clientX-e.touches[1].clientX;
+  let dy=e.touches[0].clientY-e.touches[1].clientY;
+  return Math.sqrt(dx*dx+dy*dy);
 }
 
 function onResize(){
